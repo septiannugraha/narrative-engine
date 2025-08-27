@@ -1,0 +1,84 @@
+# JSON preset files and internal documentation
+*.json
+*.md
+
+# Keep only essential config files
+!package.json
+!tsconfig.json
+!requirements.json
+!README.md
+
+# Test files (contain API keys)
+test*.py
+test*.html
+debug_session.py
+player_game.py
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.venv
+*.egg-info/
+dist/
+build/
+
+# Virtual Environment
+narrative_env/
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Environment variables and secrets
+.env
+.env.local
+*.env
+
+# Logs
+*.log
+logs/
+
+# IDE
+.vscode/
+.idea/
+*.sublime-*
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+*.cover
+.hypothesis/
+
+# Redis
+dump.rdb
+
+# Docker (if we add it later)
+docker-compose.override.yml
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.swp
+*.swo
+*~
+
+# Static files (if we add them)
+static/generated/
+media/
+
+# Jupyter Notebooks (for testing)
+*.ipynb_checkpoints

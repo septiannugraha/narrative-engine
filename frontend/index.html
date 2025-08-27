@@ -1,0 +1,499 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Narrative Engine</title>
+    
+    <!-- HTMX for server interactions -->
+    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+    <script src="https://unpkg.com/htmx.org/dist/ext/ws.js"></script>
+    
+    <!-- Alpine.js for reactive UI -->
+    <script defer src="https://unpkg.com/alpinejs@3.13.3/dist/cdn.min.js"></script>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <style>
+        /* Custom scrollbar */
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 8px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: #1f2937;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #4b5563;
+            border-radius: 4px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+            background: #6b7280;
+        }
+        
+        /* Typing animation */
+        @keyframes typing {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+        .typing-text {
+            animation: typing 0.5s ease-in-out;
+        }
+    </style>
+</head>
+<body class="h-full bg-gray-900 text-gray-100" x-data="narrativeApp()">
+    
+    <!-- Header -->
+    <header class="bg-gray-800 border-b border-gray-700 px-6 py-4">
+        <div class="flex items-center justify-between">
+            <h1 class="text-2xl font-bold bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent">
+                Narrative Engine
+            </h1>
+            <div class="flex gap-4 text-sm">
+                <span class="text-gray-400">World: <span class="text-white" x-text="worldId"></span></span>
+                <span class="text-gray-400">Time: <span class="text-white" x-text="worldTime"></span></span>
+                <span class="text-gray-400">Season: <span class="text-white" x-text="season"></span></span>
+            </div>
+        </div>
+    </header>
+    
+    <!-- Main Content -->
+    <main class="h-[calc(100vh-80px)] grid grid-cols-4 gap-4 p-4">
+        
+        <!-- Left Panel: World State & Locations -->
+        <div class="col-span-1 space-y-4">
+            
+            <!-- Location Panel -->
+            <div class="bg-gray-800 rounded-lg p-4 h-64">
+                <h2 class="text-lg font-semibold mb-3 text-purple-400">Current Location</h2>
+                <div class="space-y-2">
+                    <h3 class="text-white font-medium" x-text="currentLocation.name"></h3>
+                    <p class="text-gray-400 text-sm" x-text="currentLocation.description"></p>
+                    <div class="mt-3">
+                        <p class="text-xs text-gray-500">Mood: <span x-text="currentLocation.mood" class="text-purple-300"></span></p>
+                        <p class="text-xs text-gray-500">Lighting: <span x-text="currentLocation.lighting" class="text-yellow-300"></span></p>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Character Positions -->
+            <div class="bg-gray-800 rounded-lg p-4 flex-1">
+                <h2 class="text-lg font-semibold mb-3 text-purple-400">Character Positions</h2>
+                <div class="space-y-3 custom-scrollbar overflow-y-auto max-h-96">
+                    <template x-for="char in characters" :key="char.name">
+                        <div class="bg-gray-700 rounded p-3">
+                            <div class="flex justify-between items-start">
+                                <div>
+                                    <h3 class="font-medium" x-text="char.name"></h3>
+                                    <p class="text-xs text-gray-400 mt-1">
+                                        <span x-text="char.position.location"></span> • 
+                                        <span x-text="char.position.posture"></span>
+                                    </p>
+                                    <p class="text-xs text-purple-300 mt-1" x-text="char.emotional_state"></p>
+                                </div>
+                                <div class="text-right">
+                                    <span class="text-xs px-2 py-1 rounded" 
+                                          :class="getClothingColor(char.clothing)"
+                                          x-text="char.clothing"></span>
+                                </div>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Center Panel: Story View -->
+        <div class="col-span-2 bg-gray-800 rounded-lg flex flex-col">
+            <div class="p-4 border-b border-gray-700">
+                <h2 class="text-lg font-semibold text-purple-400">Story</h2>
+            </div>
+            
+            <!-- Narrative Content -->
+            <div id="story-content" class="flex-1 p-4 custom-scrollbar overflow-y-auto">
+                <div class="space-y-4">
+                    <template x-for="entry in storyEntries" :key="entry.id">
+                        <div class="typing-text">
+                            <div x-show="entry.type === 'narration'" class="text-gray-300 italic">
+                                <span x-html="entry.text"></span>
+                            </div>
+                            <div x-show="entry.type === 'dialogue'" class="text-white">
+                                <span class="font-semibold" x-text="entry.speaker + ':'"></span>
+                                <span x-text="entry.text"></span>
+                            </div>
+                            <div x-show="entry.type === 'action'" class="text-blue-300">
+                                <span x-html="entry.text"></span>
+                            </div>
+                            <div x-show="entry.type === 'system'" class="text-xs text-gray-500 bg-gray-700 rounded p-2">
+                                <span x-text="entry.text"></span>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+            </div>
+            
+            <!-- Input Area -->
+            <div class="p-4 border-t border-gray-700">
+                <div class="flex gap-2">
+                    <input 
+                        type="text" 
+                        x-model="actionInput"
+                        @keydown.enter="sendAction"
+                        placeholder="What do you do? (e.g., 'I walk to the bar', 'I greet Alice warmly')"
+                        class="flex-1 bg-gray-700 text-white px-4 py-2 rounded focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    >
+                    <button 
+                        @click="sendAction"
+                        class="px-6 py-2 bg-purple-600 hover:bg-purple-700 rounded font-medium transition">
+                        Act
+                    </button>
+                </div>
+                
+                <!-- Quick Actions -->
+                <div class="flex gap-2 mt-2">
+                    <button @click="quickAction('look around')" 
+                            class="text-xs px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded transition">
+                        Look Around
+                    </button>
+                    <button @click="quickAction('examine')" 
+                            class="text-xs px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded transition">
+                        Examine
+                    </button>
+                    <button @click="quickAction('inventory')" 
+                            class="text-xs px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded transition">
+                        Inventory
+                    </button>
+                    <button @click="quickAction('wait')" 
+                            class="text-xs px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded transition">
+                        Wait
+                    </button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Right Panel: Character Details & Relationships -->
+        <div class="col-span-1 space-y-4">
+            
+            <!-- Selected Character -->
+            <div class="bg-gray-800 rounded-lg p-4">
+                <h2 class="text-lg font-semibold mb-3 text-purple-400">Character Details</h2>
+                <div x-show="selectedCharacter" class="space-y-3">
+                    <div>
+                        <h3 class="font-medium text-white" x-text="selectedCharacter?.name"></h3>
+                        <p class="text-sm text-gray-400" x-text="selectedCharacter?.description"></p>
+                    </div>
+                    
+                    <!-- Stats -->
+                    <div class="space-y-1">
+                        <div class="flex justify-between text-xs">
+                            <span class="text-gray-400">Arousal</span>
+                            <div class="flex items-center gap-2">
+                                <div class="w-20 bg-gray-700 rounded h-2">
+                                    <div class="bg-pink-500 h-2 rounded transition-all duration-500" 
+                                         :style="`width: ${selectedCharacter?.arousal_level || 0}%`"></div>
+                                </div>
+                                <span class="text-gray-300" x-text="selectedCharacter?.arousal_level || 0"></span>
+                            </div>
+                        </div>
+                        <div class="flex justify-between text-xs">
+                            <span class="text-gray-400">Stress</span>
+                            <div class="flex items-center gap-2">
+                                <div class="w-20 bg-gray-700 rounded h-2">
+                                    <div class="bg-red-500 h-2 rounded transition-all duration-500" 
+                                         :style="`width: ${selectedCharacter?.stress_level || 0}%`"></div>
+                                </div>
+                                <span class="text-gray-300" x-text="selectedCharacter?.stress_level || 0"></span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Inventory -->
+                    <div>
+                        <p class="text-xs text-gray-400 mb-1">Inventory:</p>
+                        <div class="flex flex-wrap gap-1">
+                            <template x-for="item in (selectedCharacter?.inventory || [])" :key="item">
+                                <span class="text-xs px-2 py-1 bg-gray-700 rounded" x-text="item"></span>
+                            </template>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Relationships -->
+            <div class="bg-gray-800 rounded-lg p-4 flex-1">
+                <h2 class="text-lg font-semibold mb-3 text-purple-400">Relationships</h2>
+                <div class="space-y-2 custom-scrollbar overflow-y-auto max-h-64">
+                    <template x-for="rel in relationships" :key="rel.target">
+                        <div class="bg-gray-700 rounded p-2">
+                            <div class="flex justify-between items-center">
+                                <span class="text-sm font-medium" x-text="rel.target"></span>
+                                <span class="text-xs px-2 py-1 rounded bg-purple-900 text-purple-200" 
+                                      x-text="rel.type"></span>
+                            </div>
+                            <div class="mt-2 space-y-1">
+                                <div class="flex justify-between text-xs">
+                                    <span class="text-gray-400">Affection</span>
+                                    <span x-text="rel.affection"></span>
+                                </div>
+                                <div class="flex justify-between text-xs">
+                                    <span class="text-gray-400">Trust</span>
+                                    <span x-text="rel.trust"></span>
+                                </div>
+                                <div x-show="rel.is_romantic" class="text-xs text-pink-400">
+                                    ❤️ Romantic
+                                </div>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+            </div>
+            
+            <!-- Scene Controls -->
+            <div class="bg-gray-800 rounded-lg p-4">
+                <h2 class="text-lg font-semibold mb-3 text-purple-400">Scene Controls</h2>
+                <div class="space-y-2">
+                    <button @click="saveCheckpoint" 
+                            class="w-full text-sm px-3 py-2 bg-blue-600 hover:bg-blue-700 rounded transition">
+                        💾 Save Checkpoint
+                    </button>
+                    <button @click="showCheckpoints = true" 
+                            class="w-full text-sm px-3 py-2 bg-gray-700 hover:bg-gray-600 rounded transition">
+                        📂 Load Checkpoint
+                    </button>
+                    <button @click="advanceTime" 
+                            class="w-full text-sm px-3 py-2 bg-gray-700 hover:bg-gray-600 rounded transition">
+                        ⏰ Advance Time
+                    </button>
+                </div>
+            </div>
+        </div>
+    </main>
+    
+    <!-- WebSocket Status -->
+    <div class="fixed bottom-4 left-4 text-xs">
+        <span class="px-2 py-1 rounded" 
+              :class="wsConnected ? 'bg-green-900 text-green-300' : 'bg-red-900 text-red-300'">
+            <span x-text="wsConnected ? '● Connected' : '○ Disconnected'"></span>
+        </span>
+    </div>
+    
+    <script>
+        function narrativeApp() {
+            return {
+                // Connection
+                ws: null,
+                wsConnected: false,
+                worldId: 'default',
+                
+                // World State
+                worldTime: 'Morning',
+                season: 'Spring',
+                currentLocation: {
+                    name: 'Loading...',
+                    description: '',
+                    mood: 'neutral',
+                    lighting: 'normal'
+                },
+                
+                // Characters
+                characters: [],
+                selectedCharacter: null,
+                relationships: [],
+                
+                // Story
+                storyEntries: [],
+                actionInput: '',
+                
+                // UI State
+                showCheckpoints: false,
+                
+                init() {
+                    this.connectWebSocket();
+                    this.loadWorldState();
+                },
+                
+                connectWebSocket() {
+                    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+                    this.ws = new WebSocket(`${protocol}//${window.location.host}/ws/${this.worldId}/player1`);
+                    
+                    this.ws.onopen = () => {
+                        this.wsConnected = true;
+                        this.addSystemMessage('Connected to narrative engine');
+                    };
+                    
+                    this.ws.onmessage = (event) => {
+                        const data = JSON.parse(event.data);
+                        this.handleWebSocketMessage(data);
+                    };
+                    
+                    this.ws.onclose = () => {
+                        this.wsConnected = false;
+                        this.addSystemMessage('Disconnected from narrative engine');
+                        // Reconnect after delay
+                        setTimeout(() => this.connectWebSocket(), 3000);
+                    };
+                },
+                
+                handleWebSocketMessage(data) {
+                    switch(data.type) {
+                        case 'world_state':
+                            this.updateWorldState(data.data);
+                            break;
+                        case 'narrative':
+                            this.addNarrative(data.response);
+                            break;
+                        case 'position_update':
+                            this.updateCharacterPosition(data.character, data.position);
+                            break;
+                        case 'interaction':
+                            this.addNarrative(data.narrative);
+                            break;
+                    }
+                },
+                
+                async loadWorldState() {
+                    try {
+                        const response = await fetch(`/api/world/${this.worldId}`);
+                        const data = await response.json();
+                        this.updateWorldState(data);
+                    } catch (error) {
+                        console.error('Failed to load world state:', error);
+                    }
+                },
+                
+                updateWorldState(data) {
+                    // Update time and season
+                    this.worldTime = data.current_time ? new Date(data.current_time).toLocaleTimeString() : 'Unknown';
+                    this.season = data.season || 'Spring';
+                    
+                    // Update characters
+                    if (data.characters) {
+                        this.characters = Object.values(data.characters);
+                        if (this.characters.length > 0 && !this.selectedCharacter) {
+                            this.selectedCharacter = this.characters[0];
+                            this.updateRelationships();
+                        }
+                    }
+                    
+                    // Update location
+                    if (data.active_scene) {
+                        this.currentLocation = {
+                            name: data.active_scene.location || 'Unknown',
+                            description: 'A mysterious place',
+                            mood: data.active_scene.mood || 'neutral',
+                            lighting: 'normal'
+                        };
+                    }
+                },
+                
+                updateRelationships() {
+                    if (!this.selectedCharacter || !this.selectedCharacter.relationships) return;
+                    
+                    this.relationships = Object.entries(this.selectedCharacter.relationships).map(([target, rel]) => ({
+                        target,
+                        type: rel.relationship_type,
+                        affection: rel.affection,
+                        trust: rel.trust,
+                        is_romantic: rel.is_romantic
+                    }));
+                },
+                
+                updateCharacterPosition(charName, position) {
+                    const char = this.characters.find(c => c.name === charName);
+                    if (char) {
+                        char.position = position;
+                    }
+                },
+                
+                sendAction() {
+                    if (!this.actionInput.trim() || !this.ws || !this.wsConnected) return;
+                    
+                    // Add player action to story
+                    this.addAction(this.actionInput);
+                    
+                    // Send to server
+                    this.ws.send(JSON.stringify({
+                        type: 'action',
+                        action: this.actionInput
+                    }));
+                    
+                    // Clear input
+                    this.actionInput = '';
+                },
+                
+                quickAction(action) {
+                    this.actionInput = action;
+                    this.sendAction();
+                },
+                
+                addNarrative(text) {
+                    this.storyEntries.push({
+                        id: Date.now(),
+                        type: 'narration',
+                        text: text
+                    });
+                    this.scrollToBottom();
+                },
+                
+                addAction(text) {
+                    this.storyEntries.push({
+                        id: Date.now(),
+                        type: 'action',
+                        text: `> ${text}`
+                    });
+                    this.scrollToBottom();
+                },
+                
+                addSystemMessage(text) {
+                    this.storyEntries.push({
+                        id: Date.now(),
+                        type: 'system',
+                        text: text
+                    });
+                    this.scrollToBottom();
+                },
+                
+                scrollToBottom() {
+                    this.$nextTick(() => {
+                        const content = document.getElementById('story-content');
+                        content.scrollTop = content.scrollHeight;
+                    });
+                },
+                
+                getClothingColor(clothing) {
+                    const colors = {
+                        'fully dressed': 'bg-green-900 text-green-300',
+                        'partially dressed': 'bg-yellow-900 text-yellow-300',
+                        'underwear only': 'bg-orange-900 text-orange-300',
+                        'towel only': 'bg-blue-900 text-blue-300',
+                        'naked': 'bg-red-900 text-red-300'
+                    };
+                    return colors[clothing] || 'bg-gray-700 text-gray-300';
+                },
+                
+                async saveCheckpoint() {
+                    const name = prompt('Checkpoint name:');
+                    if (!name) return;
+                    
+                    try {
+                        const response = await fetch(`/api/world/${this.worldId}/checkpoint`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ name })
+                        });
+                        const data = await response.json();
+                        this.addSystemMessage(data.message);
+                    } catch (error) {
+                        console.error('Failed to save checkpoint:', error);
+                    }
+                },
+                
+                async advanceTime() {
+                    // This would call an API endpoint to advance time
+                    this.addSystemMessage('Time advances by one hour...');
+                }
+            }
+        }
+    </script>
+</body>
+</html>

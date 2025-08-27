@@ -1,0 +1,81 @@
+version: '3.8'
+
+services:
+  narrative-engine:
+    build: .
+    container_name: narrative-engine
+    ports:
+      - "8000:8000"
+    environment:
+      # LLM Configuration - Choose your provider
+      - LLM_PROVIDER=${LLM_PROVIDER:-openai}
+      
+      # OpenAI Configuration
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4-turbo-preview}
+      
+      # Anthropic Configuration
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - ANTHROPIC_MODEL=${ANTHROPIC_MODEL:-claude-3-opus-20240229}
+      
+      # Gemini Configuration
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - GEMINI_MODEL=${GEMINI_MODEL:-gemini-1.5-pro}
+      
+      # Local LLM Configuration (Ollama)
+      - LOCAL_LLM_URL=${LOCAL_LLM_URL:-http://host.docker.internal:11434}
+      - LOCAL_MODEL=${LOCAL_MODEL:-llama2}
+      
+      # General settings
+      - LLM_TEMPERATURE=${LLM_TEMPERATURE:-0.9}
+      - CONTENT_RATING=${CONTENT_RATING:-mature}
+      
+    volumes:
+      # Mount for development - hot reload
+      - ./backend:/app/backend
+      - ./frontend:/app/frontend
+      
+    networks:
+      - narrative-net
+    
+    depends_on:
+      - redis
+      
+  redis:
+    image: redis:7-alpine
+    container_name: narrative-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - narrative-net
+    command: redis-server --appendonly yes
+    
+  # Optional: Ollama for local LLM
+  ollama:
+    image: ollama/ollama:latest
+    container_name: narrative-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+    networks:
+      - narrative-net
+    profiles:
+      - local-llm
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+              
+networks:
+  narrative-net:
+    driver: bridge
+    
+volumes:
+  redis-data:
+  ollama-data:

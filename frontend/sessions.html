@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Narrative Engine - Session Manager</title>
+    
+    <!-- Alpine.js for reactive UI -->
+    <script defer src="https://unpkg.com/alpinejs@3.13.3/dist/cdn.min.js"></script>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="h-full bg-gray-900 text-gray-100" x-data="sessionManager()">
+    
+    <div class="min-h-full flex flex-col">
+        <!-- Header -->
+        <div class="bg-gray-800 border-b border-gray-700 p-4">
+            <div class="max-w-6xl mx-auto">
+                <h1 class="text-2xl font-bold bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent">
+                    🎮 Narrative Engine - Session Manager
+                </h1>
+            </div>
+        </div>
+        
+        <!-- Main Content -->
+        <div class="flex-1 p-8">
+            <div class="max-w-6xl mx-auto">
+                
+                <!-- New Game Button -->
+                <div class="mb-8 text-center">
+                    <a href="/" 
+                       class="inline-block px-8 py-3 bg-purple-600 hover:bg-purple-700 rounded-lg font-semibold transition-colors">
+                        ✨ Start New Adventure
+                    </a>
+                </div>
+                
+                <!-- Sessions List -->
+                <div class="bg-gray-800 rounded-lg shadow-xl p-6">
+                    <h2 class="text-xl font-semibold mb-4">📚 Your Saved Adventures</h2>
+                    
+                    <!-- Loading State -->
+                    <div x-show="loading" class="text-center py-8">
+                        <div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-purple-500"></div>
+                        <div class="mt-2">Loading sessions...</div>
+                    </div>
+                    
+                    <!-- Sessions Table -->
+                    <div x-show="!loading && sessions.length > 0" class="overflow-x-auto">
+                        <table class="w-full">
+                            <thead>
+                                <tr class="border-b border-gray-700">
+                                    <th class="text-left py-2 px-4">Character</th>
+                                    <th class="text-left py-2 px-4">World</th>
+                                    <th class="text-left py-2 px-4">Events</th>
+                                    <th class="text-left py-2 px-4">Created</th>
+                                    <th class="text-left py-2 px-4">Last Played</th>
+                                    <th class="text-center py-2 px-4">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <template x-for="session in sessions" :key="session.session_id">
+                                    <tr class="border-b border-gray-700 hover:bg-gray-700/50 transition-colors">
+                                        <td class="py-3 px-4">
+                                            <div class="font-semibold" x-text="session.player_name || 'Unknown'"></div>
+                                            <div class="text-xs text-gray-400" x-text="session.session_id.substring(0, 8) + '...'"></div>
+                                        </td>
+                                        <td class="py-3 px-4">
+                                            <span class="text-sm" x-text="formatWorldType(session.world_type)"></span>
+                                        </td>
+                                        <td class="py-3 px-4">
+                                            <span class="text-sm" x-text="session.event_count || 0"></span>
+                                        </td>
+                                        <td class="py-3 px-4">
+                                            <span class="text-sm text-gray-400" x-text="formatDate(session.created_at)"></span>
+                                        </td>
+                                        <td class="py-3 px-4">
+                                            <span class="text-sm text-gray-400" x-text="formatDate(session.updated_at)"></span>
+                                        </td>
+                                        <td class="py-3 px-4 text-center space-x-2">
+                                            <button 
+                                                @click="resumeSession(session.session_id, session.player_name)"
+                                                class="px-3 py-1 bg-green-600 hover:bg-green-700 rounded text-sm transition-colors">
+                                                ▶️ Resume
+                                            </button>
+                                            <button 
+                                                @click="deleteSession(session.session_id)"
+                                                class="px-3 py-1 bg-red-600 hover:bg-red-700 rounded text-sm transition-colors">
+                                                🗑️ Delete
+                                            </button>
+                                        </td>
+                                    </tr>
+                                </template>
+                            </tbody>
+                        </table>
+                    </div>
+                    
+                    <!-- No Sessions -->
+                    <div x-show="!loading && sessions.length === 0" class="text-center py-8 text-gray-400">
+                        <div class="text-4xl mb-4">📭</div>
+                        <div>No saved adventures found.</div>
+                        <div class="mt-2">Start a new adventure to begin!</div>
+                    </div>
+                    
+                    <!-- Error State -->
+                    <div x-show="error" class="mt-4 p-4 bg-red-900/50 border border-red-700 rounded-lg">
+                        <div class="font-semibold">Error loading sessions:</div>
+                        <div x-text="error"></div>
+                    </div>
+                </div>
+                
+                <!-- Storage Info -->
+                <div class="mt-8 p-4 bg-gray-800 rounded-lg">
+                    <h3 class="font-semibold mb-2">💾 Storage Information</h3>
+                    <div class="text-sm text-gray-400">
+                        <p>Sessions are stored in SQLite database and persist across server restarts.</p>
+                        <p>Your browser remembers your last session ID for quick resume.</p>
+                        <p class="mt-2">
+                            Current saved session: 
+                            <span x-text="savedSessionId || 'None'" class="font-mono text-purple-400"></span>
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        function sessionManager() {
+            return {
+                sessions: [],
+                loading: true,
+                error: null,
+                savedSessionId: localStorage.getItem('narrative_session_id'),
+                
+                async init() {
+                    await this.loadSessions();
+                },
+                
+                async loadSessions() {
+                    this.loading = true;
+                    this.error = null;
+                    
+                    try {
+                        const response = await fetch('/api/sessions');
+                        if (!response.ok) throw new Error('Failed to load sessions');
+                        
+                        const data = await response.json();
+                        this.sessions = data;
+                    } catch (error) {
+                        this.error = error.message;
+                    } finally {
+                        this.loading = false;
+                    }
+                },
+                
+                formatWorldType(type) {
+                    const types = {
+                        'fantasy_tavern': '⚔️ Fantasy Tavern',
+                        'cyberpunk_bar': '🌃 Cyberpunk Bar',
+                        'custom': '✨ Custom World'
+                    };
+                    return types[type] || type;
+                },
+                
+                formatDate(timestamp) {
+                    if (!timestamp) return 'Never';
+                    // Handle both Unix timestamps and ISO strings
+                    const date = typeof timestamp === 'string' ? new Date(timestamp) : new Date(timestamp * 1000);
+                    const now = new Date();
+                    const diff = now - date;
+                    
+                    // Less than an hour
+                    if (diff < 3600000) {
+                        const mins = Math.floor(diff / 60000);
+                        return `${mins} minute${mins !== 1 ? 's' : ''} ago`;
+                    }
+                    // Less than a day
+                    if (diff < 86400000) {
+                        const hours = Math.floor(diff / 3600000);
+                        return `${hours} hour${hours !== 1 ? 's' : ''} ago`;
+                    }
+                    // Less than a week
+                    if (diff < 604800000) {
+                        const days = Math.floor(diff / 86400000);
+                        return `${days} day${days !== 1 ? 's' : ''} ago`;
+                    }
+                    
+                    return date.toLocaleDateString();
+                },
+                
+                resumeSession(sessionId, playerName) {
+                    // Save to localStorage
+                    localStorage.setItem('narrative_session_id', sessionId);
+                    localStorage.setItem('narrative_character_name', playerName);
+                    localStorage.setItem('narrative_resume_from_selection', 'true');
+                    
+                    // Redirect to game
+                    window.location.href = '/';
+                },
+                
+                async deleteSession(sessionId) {
+                    if (!confirm('Are you sure you want to delete this adventure? This cannot be undone.')) {
+                        return;
+                    }
+                    
+                    try {
+                        const response = await fetch(`/api/session/${sessionId}`, {
+                            method: 'DELETE'
+                        });
+                        
+                        if (response.ok) {
+                            // Remove from local storage if it's the current session
+                            if (this.savedSessionId === sessionId) {
+                                localStorage.removeItem('narrative_session_id');
+                                localStorage.removeItem('narrative_character_name');
+                                this.savedSessionId = null;
+                            }
+                            
+                            // Reload sessions
+                            await this.loadSessions();
+                        } else {
+                            throw new Error('Failed to delete session');
+                        }
+                    } catch (error) {
+                        alert('Error deleting session: ' + error.message);
+                    }
+                }
+            }
+        }
+    </script>
+</body>
+</html>

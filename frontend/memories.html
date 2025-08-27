@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NPC Memory Viewer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script defer src="https://unpkg.com/alpinejs@3.13.3/dist/cdn.min.js"></script>
+</head>
+<body class="bg-gray-900 text-gray-100" x-data="memoryViewer()" x-init="init()">
+    <div class="container mx-auto p-8">
+        <h1 class="text-3xl font-bold mb-8 bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent">
+            🧠 NPC Memory Viewer
+        </h1>
+        
+        <!-- Session Selector -->
+        <div class="mb-6">
+            <label class="block text-sm font-medium mb-2">Select Session:</label>
+            <div class="flex gap-4">
+                <input 
+                    x-model="sessionId" 
+                    type="text" 
+                    placeholder="Enter session ID"
+                    class="flex-1 px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg focus:outline-none focus:border-purple-500"
+                >
+                <button 
+                    @click="loadMemories()"
+                    class="px-6 py-2 bg-purple-600 hover:bg-purple-700 rounded-lg font-semibold transition-colors"
+                >
+                    Load Memories
+                </button>
+                <button 
+                    @click="autoRefresh = !autoRefresh"
+                    :class="autoRefresh ? 'bg-green-600' : 'bg-gray-600'"
+                    class="px-6 py-2 rounded-lg font-semibold transition-colors"
+                >
+                    Auto-Refresh: <span x-text="autoRefresh ? 'ON' : 'OFF'"></span>
+                </button>
+            </div>
+        </div>
+        
+        <!-- Error Display -->
+        <div x-show="error" class="mb-6 p-4 bg-red-900/50 border border-red-500 rounded-lg">
+            <span x-text="error"></span>
+        </div>
+        
+        <!-- Loading -->
+        <div x-show="loading" class="text-center py-8">
+            <div class="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-purple-500"></div>
+            <p class="mt-4">Loading memories...</p>
+        </div>
+        
+        <!-- Memory Display -->
+        <div x-show="!loading && memoryData" class="space-y-6">
+            
+            <!-- Stats -->
+            <div class="grid grid-cols-3 gap-4 mb-6">
+                <div class="bg-gray-800 rounded-lg p-4">
+                    <div class="text-2xl font-bold text-purple-400" x-text="memoryData?.total_memories || 0"></div>
+                    <div class="text-sm text-gray-400">Total Memories</div>
+                </div>
+                <div class="bg-gray-800 rounded-lg p-4">
+                    <div class="text-2xl font-bold text-pink-400" x-text="Object.keys(memoryData?.memories || {}).length"></div>
+                    <div class="text-sm text-gray-400">NPCs with Memories</div>
+                </div>
+                <div class="bg-gray-800 rounded-lg p-4">
+                    <div class="text-2xl font-bold text-blue-400" x-text="(memoryData?.world_events || []).length"></div>
+                    <div class="text-sm text-gray-400">World Events</div>
+                </div>
+            </div>
+            
+            <!-- Gossip Network -->
+            <div class="bg-gray-800 rounded-lg p-6">
+                <h2 class="text-xl font-bold mb-4">💬 Gossip Network</h2>
+                <div class="grid grid-cols-2 gap-4">
+                    <template x-for="(connections, npc) in (memoryData?.gossip_network || {})" :key="npc">
+                        <div class="bg-gray-700 rounded p-3">
+                            <div class="font-semibold" x-text="npc"></div>
+                            <div class="text-sm text-gray-400">
+                                Talks to: <span x-text="connections.join(', ') || 'No one'"></span>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+            </div>
+            
+            <!-- NPC Memories -->
+            <div class="space-y-4">
+                <h2 class="text-xl font-bold">📚 NPC Memories</h2>
+                
+                <template x-for="(memories, npcName) in (memoryData?.memories || {})" :key="npcName">
+                    <div class="bg-gray-800 rounded-lg p-6">
+                        <h3 class="text-lg font-bold mb-4">
+                            <span x-text="npcName"></span> 
+                            <span class="text-sm text-gray-400">(<span x-text="memories.length"></span> memories)</span>
+                        </h3>
+                        
+                        <div class="space-y-2 max-h-96 overflow-y-auto">
+                            <template x-for="(memory, index) in memories.slice(0, showAll[npcName] ? memories.length : 5)" :key="index">
+                                <div class="bg-gray-700 rounded p-3">
+                                    <div class="flex justify-between items-start mb-1">
+                                        <span 
+                                            class="text-xs px-2 py-1 rounded"
+                                            :class="{
+                                                'bg-purple-900': memory.type === 'dialogue',
+                                                'bg-blue-900': memory.type === 'observation',
+                                                'bg-green-900': memory.type === 'action',
+                                                'bg-yellow-900': memory.type === 'gossip',
+                                                'bg-pink-900': memory.type === 'emotion'
+                                            }"
+                                            x-text="memory.type"
+                                        ></span>
+                                        <span 
+                                            class="text-xs"
+                                            :class="{
+                                                'text-red-400': memory.importance === 'critical',
+                                                'text-orange-400': memory.importance === 'high',
+                                                'text-yellow-400': memory.importance === 'medium',
+                                                'text-gray-400': memory.importance === 'low'
+                                            }"
+                                            x-text="'★'.repeat(getImportanceStars(memory.importance))"
+                                        ></span>
+                                    </div>
+                                    <p class="text-sm mb-1" x-text="memory.content"></p>
+                                    <div class="flex justify-between text-xs text-gray-500">
+                                        <span x-show="memory.about.length > 0">
+                                            About: <span x-text="memory.about.join(', ')"></span>
+                                        </span>
+                                        <span x-text="formatTime(memory.timestamp)"></span>
+                                    </div>
+                                    <div class="text-xs text-gray-500 mt-1" x-show="memory.decay > 0">
+                                        Decay: <span x-text="(memory.decay * 100).toFixed(1)"></span>%
+                                    </div>
+                                </div>
+                            </template>
+                        </div>
+                        
+                        <button 
+                            x-show="memories.length > 5"
+                            @click="showAll[npcName] = !showAll[npcName]"
+                            class="mt-2 text-sm text-purple-400 hover:text-purple-300"
+                            x-text="showAll[npcName] ? 'Show Less' : `Show All (${memories.length})`"
+                        ></button>
+                    </div>
+                </template>
+            </div>
+            
+            <!-- World Events -->
+            <div class="bg-gray-800 rounded-lg p-6">
+                <h2 class="text-xl font-bold mb-4">🌍 Recent World Events</h2>
+                <div class="space-y-2">
+                    <template x-for="event in (memoryData?.world_events || [])" :key="event.timestamp">
+                        <div class="bg-gray-700 rounded p-3">
+                            <div class="flex justify-between items-start">
+                                <div class="flex-1">
+                                    <span class="font-semibold" x-text="event.type"></span>
+                                    <p class="text-sm text-gray-300" x-text="event.description"></p>
+                                    <div class="text-xs text-gray-500 mt-1">
+                                        Participants: <span x-text="event.participants.join(', ')"></span>
+                                    </div>
+                                </div>
+                                <span class="text-xs text-gray-500" x-text="formatTime(event.timestamp)"></span>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        function memoryViewer() {
+            return {
+                sessionId: '',
+                memoryData: null,
+                loading: false,
+                error: null,
+                autoRefresh: false,
+                refreshInterval: null,
+                showAll: {},
+                
+                init() {
+                    // Try to get session ID from URL params
+                    const urlParams = new URLSearchParams(window.location.search);
+                    const sid = urlParams.get('session');
+                    if (sid) {
+                        this.sessionId = sid;
+                        this.loadMemories();
+                    }
+                    
+                    // Set up auto-refresh
+                    this.$watch('autoRefresh', (value) => {
+                        if (value) {
+                            this.refreshInterval = setInterval(() => this.loadMemories(), 5000);
+                        } else {
+                            clearInterval(this.refreshInterval);
+                        }
+                    });
+                },
+                
+                async loadMemories() {
+                    if (!this.sessionId) {
+                        this.error = 'Please enter a session ID';
+                        return;
+                    }
+                    
+                    this.loading = true;
+                    this.error = null;
+                    
+                    try {
+                        const response = await fetch(`/api/session/${this.sessionId}/memories`);
+                        const data = await response.json();
+                        
+                        if (data.error) {
+                            this.error = data.error;
+                        } else {
+                            this.memoryData = data;
+                            console.log('Loaded memories:', data);
+                        }
+                    } catch (error) {
+                        this.error = 'Failed to load memories: ' + error.message;
+                    } finally {
+                        this.loading = false;
+                    }
+                },
+                
+                getImportanceStars(importance) {
+                    const levels = {
+                        'critical': 5,
+                        'high': 4,
+                        'medium': 3,
+                        'low': 2,
+                        'trivial': 1
+                    };
+                    return levels[importance] || 1;
+                },
+                
+                formatTime(timestamp) {
+                    const date = new Date(timestamp);
+                    const now = new Date();
+                    const diff = now - date;
+                    
+                    if (diff < 60000) return 'Just now';
+                    if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
+                    if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
+                    
+                    return date.toLocaleString();
+                }
+            }
+        }
+    </script>
+</body>
+</html>
